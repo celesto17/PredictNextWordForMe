@@ -1,0 +1,343 @@
+---
+title: "Text Prediction - Capstone - Week 2 Milestone Report"
+author: "Sanjay Lonkar"
+date: "12 January 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+This Week 2 Milestone Report is part of Data Science Specilization Capstone Project. In this capstone, project is to understand and build predictive text models like those used by SwiftKey e.g. If words are "I went to the", prediction text model should present options such as gym, store, restaurant.
+
+The purpose of this Milestone Report is to demonstrate foundation work of text prediction model. This milestone report presents key steps along with key code snippets and their outputs. Code is embedded in various functions to increase modularity and reuse.
+
+## Step 1 - Load Libraries & Download Data
+
+```{r echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+library (readr)
+library (tm)
+library (wordcloud)
+library (RWeka)
+library (stringi)
+library (ggplot2)
+library (gridExtra)
+```
+
+```{r echo=FALSE, eval=TRUE, warning=FALSE, message=FALSE}
+# *** Set constants. This code snippet is not required to be displayed on HTML
+scriptDir <- "F:/01. Data Science/10. Data Science Capstone/05. Capstone" # Working directory location of R script and dataset
+inputFileNameTwitter <- "./final/en_US/en_US.twitter.txt"
+inputFileNameNews <- "./final/en_US/en_US.news.txt"
+inputFileNameBlogs <- "./final/en_US/en_US.blogs.txt"
+sampleFileNameTwitter <- "./sample/sampleDatasetTwitter.txt" # Sample file which will contain randomly read lines
+sampleFileNameNews <- "./sample/sampleDatasetNews.txt" # Sample file which will contain randomly read lines
+sampleFileNameBlogs <- "./sample/sampleDatasetBlogs.txt" # Sample file which will contain randomly read lines
+
+rdsCombinedWithStopWordsUni <- "./sample/rdsCombinedWithStopWordsUni.rds"
+rdsCombinedWithStopWordsBi <- "./sample/rdsCombinedWithStopWordsBi.rds"
+rdsCombinedWithStopWordsTri <- "./sample/rdsCombinedWithStopWordsTri.rds"
+rdsCombinedWithStopWordsQuad <- "./sample/rdsCombinedWithStopWordsQuad.rds"
+
+rdsCombinedWithoutStopWordsUni <- "./sample/rdsCobinedWithoutStopWordsUni.rds"
+rdsCombinedWithoutStopWordsBi <- "./sample/rdsCobinedWithoutStopWordsBi.rds"
+rdsCombinedWithoutStopWordsTri <- "./sample/rdsCobinedWithoutStopWordsTri.rds"
+rdsCombinedWithoutStopWordsQuad <- "./sample/rdsCobinedWithoutStopWordsQuad.rds"
+
+outputDirName <- "./sample"
+noOfRandomLines <- 500
+setwd (scriptDir)
+badWordsFileURL <- "http://www.bannedwordlist.com/lists/swearWords.txt"
+badWordsFileName <- "badwords.txt"
+```
+
+```{r echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
+  setwd("F:/01. Data Science/10. Data Science Capstone/05. Capstone")
+  if (!file.exists("Coursera-SwiftKey.zip")) {
+    download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip", "Coursera-SwiftKey.zip")
+    unzip("Coursera-SwiftKey.zip")
+  }
+```
+
+## Step 2 - Get Dataset Info
+
+Function to get size of dataset txt files, number of lines and number of words in those files.
+
+```{r echo=TRUE, eval=TRUE, warning=FALSE, message=TRUE}
+fnGetOriginalDatasetInfo <- function () {
+  conTwitter <- file (inputFileNameTwitter)
+  conNews <- file (inputFileNameNews)
+  conBlogs <- file (inputFileNameBlogs)
+  
+  linesTwitter <- readLines (conTwitter)
+  linesNews <- readLines(conNews)
+  linesBlogs <- readLines (conBlogs)
+  
+  datasetTwitterSummary <- fnGetFileInfo (linesTwitter)
+  datasetNewsSummary <- fnGetFileInfo (linesNews)
+  datasetBlogsSummary <- fnGetFileInfo (linesBlogs)
+  
+  tableRows <- c ("Twitter", "News", "Blogs")
+  datasetInfo <- rbind (unlist(datasetTwitterSummary), unlist(datasetNewsSummary), unlist(datasetBlogsSummary))
+  datasetTable <- data.frame (cbind(tableRows, datasetInfo))
+  names (datasetTable) <- c ("File", "Size", "Number of Lines", "Number of Words")
+  print (datasetTable)
+  
+  close (conTwitter)
+  close (conNews)
+  close (conBlogs)
+}
+
+fnGetFileInfo <- function (datasetText) {
+  fileSize <- format (object.size(datasetText), units = "Mb")
+  fileLines <- length(datasetText)
+  fileWords <- sum(stri_count_words(datasetText))
+  return (list(fileSize, fileLines, fileWords))
+}
+
+fnGetOriginalDatasetInfo ()
+```
+
+## Step 3 - Create Sample Datasets
+
+Function to read dataset txt files, read random 500 lines from those files. These lines will be written to a three seperate sample text files for tokenization, N-Grams, etc.
+
+```{r echo=TRUE, eval=TRUE, warning=FALSE, message=TRUE}
+fnCreateSampleDataset <- function (inputFileName) {
+  
+  # Generate sample dataset from Twitter file
+  conTwitter <- file (inputFileNameTwitter)
+  linesTwitter <- readLines (conTwitter)
+  open (conTwitter, "r")
+  noOfRowsInFile <- length (readLines(conTwitter))
+  randomLineNumbers <- sample (1:noOfRowsInFile, noOfRandomLines, replace = F)
+  close (conTwitter)
+  for (i in 1:5000) {
+    tempLine <- read_lines (inputFileNameTwitter, skip = randomLineNumbers[i], skip_empty_rows = FALSE, n_max = 1)
+    write_lines (tempLine, sampleFileNameTwitter, sep = "\r\n", na = "NA", append = TRUE)
+  }
+  
+  # Generate sample dataset from News file
+  conNews <- file (inputFileNameNews)
+  linesNews <- readLines(conNews)
+  open (conNews, "r")
+  noOfRowsInFile <- length (readLines(conNews))
+  randomLineNumbers <- sample (1:noOfRowsInFile, noOfRandomLines, replace = F)
+  close (conNews)
+  for (i in 1:5000) {
+    tempLine <- read_lines (inputFileNameNews, skip = randomLineNumbers[i], skip_empty_rows = FALSE, n_max = 1)
+    write_lines (tempLine, sampleFileNameNews, sep = "\r\n", na = "NA", append = TRUE)
+  }
+  
+  # Generate sample dataset from Blogs file
+  conBlogs <- file (inputFileNameBlogs)
+  linesBlogs <- readLines (conBlogs)  
+  noOfRowsInFile <- length (readLines(conBlogs))
+  randomLineNumbers <- sample (1:noOfRowsInFile, noOfRandomLines, replace = F)
+  close (conBlogs)
+  for (i in 1:5000) {
+    tempLine <- read_lines (inputFileNameBlogs, skip = randomLineNumbers[i], skip_empty_rows = FALSE, n_max = 1)
+    write_lines (tempLine, sampleFileNameBlogs, sep = "\r\n", na = "NA", append = TRUE)
+  }
+}
+
+fnCreateSampleDataset ()
+```
+
+### Step 4 - Prepare Corpora from Sample Datasets
+
+Prepare clean corpus from three sample text files. These will then be combined to form a corpora - with stop words and without stop words. 
+
+```{r echo=TRUE, eval=TRUE, warning=FALSE, message=TRUE}
+fnExploratoryAnalysis <- function (datasetFileName) {
+  # Prepare Corpus
+  corpusText <- readLines (datasetFileName)
+  corpusFeeds <- VCorpus (VectorSource(corpusText))
+
+  # Clean dataset 
+  corpusFeeds <- tm_map (corpusFeeds, removePunctuation) # Remove punctuations
+  corpusFeeds <- tm_map (corpusFeeds, content_transformer(tolower)) # Convert text to lower case
+  corpusFeeds <- tm_map (corpusFeeds, content_transformer(remove_internet_chars)) # Remove internet specific characters
+  corpusFeeds <- tm_map (corpusFeeds, content_transformer(remove_symbols)) # Remove symbols such as ?????, etc.
+  corpusFeeds <- tm_map (corpusFeeds, stripWhitespace) # Eliminate extra white spaces
+  
+  # Profinity filtering - Can use addspace custom made function as required
+  if ( !file.exists(badWordsFileName)) {
+    # fileUrl2 <- "http://www.bannedwordlist.com/lists/swearWords.txt"
+    download.file(badWordsFileURL, destfile = badWordsFileName)
+  }
+  badwords <- readLines(badWordsFileName)
+  profanity <- VectorSource(badwords)
+  corpusFeeds <- tm_map(corpusFeeds, removeWords, profanity)
+  
+  corpusFeeds <- tm_map(corpusFeeds, PlainTextDocument) # Convert data to plain text
+  return (corpusFeeds)
+}
+
+remove_internet_chars <- function(x){
+  # replace emails and such but space
+  x <- gsub("[^ ]{1,}@[^ ]{1,}"," ",x)
+  x <- gsub(" @[^ ]{1,}"," ",x)
+  # hashtags
+  x <- gsub("#[^ ]{1,}"," ",x) 
+  # websites and file systems
+  x <- gsub("[^ ]{1,}://[^ ]{1,}"," ",x) 
+  x
+}
+
+remove_symbols <- function(x){
+  # Edit out most non-alphabetical character
+  # text must be lower case first
+  x <- gsub("[`??????]","'",x)
+  x <- gsub("[^a-z']"," ",x)
+  x <- gsub("'{2,}"," '",x)
+  x <- gsub("' "," ",x)
+  x <- gsub(" '"," ",x)
+  x <- gsub("^'","",x)
+  x <- gsub("'$","",x)
+  x
+}
+
+corpusTwitter <- fnExploratoryAnalysis (sampleFileNameTwitter)
+corpusNews <- fnExploratoryAnalysis (sampleFileNameNews)
+corpusBlogs <- fnExploratoryAnalysis (sampleFileNameBlogs)
+
+corpusCombinedWithStopWords <- c (corpusTwitter, corpusNews, corpusBlogs)
+corpusCobinedWithoutStopWords <- tm_map (corpusCombinedWithStopWords, removeWords, stopwords("english")) # Remove common words in English
+```
+
+## Step 5 - Generate N Grams. Visualize Plots
+
+In this step, we will generate two sets of plots - one set will have plots from corpus that has stopwords and other set will have plots from corpus that does not have stopwords.
+These plots will be for uni, bi, tri and quad grams. We will observe the term frequencies in these plots.
+
+```{r echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
+
+fnGenerateNGramPlots <- function (corpusForNGrams) {
+  
+  dataFrameForNGrams <- data.frame (text = sapply (corpusForNGrams, as.character), stringsAsFactors = FALSE)
+  uniGramToken <- NGramTokenizer (dataFrameForNGrams, Weka_control (min=1, max=1))
+  biGramToken <- NGramTokenizer (dataFrameForNGrams, Weka_control(min=2, max=2))
+  triGramToken <- NGramTokenizer (dataFrameForNGrams, Weka_control(min=3, max=3))
+  quadGramToken <- NGramTokenizer(dataFrameForNGrams, Weka_control(min=4,max=4))
+
+  uniGrams <- data.frame(table(uniGramToken))
+  biGrams <- data.frame(table(biGramToken))
+  triGrams <- data.frame(table(triGramToken))
+  quadGrams <- data.frame(table(quadGramToken))
+    
+  uniGrams <- uniGrams[order(uniGrams$Freq,decreasing=TRUE),]
+  colnames(uniGrams) <- c("Word", "Frequency")
+  biGrams <- biGrams[order(biGrams$Freq,decreasing=TRUE),]
+  colnames(biGrams) <- c("Word", "Frequency")
+  triGrams <- triGrams[order(triGrams$Freq,decreasing=TRUE),]
+  colnames(triGrams) <- c("Word", "Frequency")
+  quadGrams <- quadGrams[order(quadGrams$Freq,decreasing=TRUE),]
+  colnames(quadGrams) <- c("Word", "Frequency")
+
+  uniGrams_s <- uniGrams[1:10,]
+  biGrams_s <- biGrams[1:10,]
+  triGrams_s <- triGrams[1:10,]
+  quadGrams_s <- quadGrams[1:10,]
+  
+  plotUniGram <- ggplot(data = uniGrams_s, aes(x = reorder(Word, -Frequency), y = Frequency)) + geom_bar(stat="identity", fill = "red") + 
+    labs(x = "Word", y = "Frequency", title = "Frequencies of Uni Gram - Top 10") + 
+    theme(axis.text.x=element_text(angle=90))
+  
+  plotBiGram <- ggplot(data = biGrams_s, aes(x = reorder(Word, -Frequency), y = Frequency)) + geom_bar(stat="identity", fill = "blue") + 
+    labs(x = "Words", y = "Frequency", title = "Frequencies of Bi Gram - Top 10") + 
+    theme(axis.text.x=element_text(angle=90))
+  
+  plotTriGram <- ggplot(data = triGrams_s, aes(x = reorder(Word, -Frequency), y = Frequency)) + geom_bar(stat="identity", fill = "green") + 
+    labs(x = "Words", y = "Frequency", title = "Frequencies of Tri Gram - Top 10") + 
+    theme(axis.text.x=element_text(angle=90))  
+  
+  plotQuadGram <- ggplot(data = quadGrams_s, aes(x = reorder(Word, -Frequency), y = Frequency)) + geom_bar(stat="identity", fill = "maroon") +     labs(x = "Words", y = "Frequency", title = "Frequencies of Tri Gram - Top 10") + 
+    theme(axis.text.x=element_text(angle=90))  
+   
+  print (plotUniGram)
+  print (plotBiGram)
+  print (plotTriGram)
+  print (plotQuadGram)
+
+  return
+}
+```
+
+#### Uni, Bi, Tri and Quad Grams for Corpus Containing Stopwords
+```{r echo=TRUE, eval=FALSE, warning=FALSE, message=TRUE}
+fnGenerateNGramPlots (corpusCombinedWithStopWords)
+```
+
+#### Uni, Bi, Tri and Quad Grams for Corpus Containing No Stopwords
+```{r echo=TRUE, eval=FALSE, warning=FALSE, message=TRUE}
+fnGenerateNGramPlots (corpusCobinedWithoutStopWords)
+```
+
+```{r echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+fnGenerateRDS <- function (corpusForRDS, corpusMode) {
+  
+  dataFrameForNGrams <- data.frame (text = sapply (corpusForRDS, as.character), stringsAsFactors = FALSE)
+  uniGramToken <- NGramTokenizer (dataFrameForNGrams, Weka_control (min=1, max=1))
+  biGramToken <- NGramTokenizer (dataFrameForNGrams, Weka_control(min=2, max=2))
+  triGramToken <- NGramTokenizer (dataFrameForNGrams, Weka_control(min=3, max=3))
+  quadGramToken <- NGramTokenizer(dataFrameForNGrams, Weka_control(min=4,max=4))
+
+  uniGrams <- data.frame(table(uniGramToken))
+  biGrams <- data.frame(table(biGramToken))
+  triGrams <- data.frame(table(triGramToken))
+  quadGrams <- data.frame(table(quadGramToken))
+    
+  uniGrams <- uniGrams[order(uniGrams$Freq,decreasing=TRUE),]
+  colnames(uniGrams) <- c("Word", "Frequency")
+  biGrams <- biGrams[order(biGrams$Freq,decreasing=TRUE),]
+  colnames(biGrams) <- c("Word", "Frequency")
+  triGrams <- triGrams[order(triGrams$Freq,decreasing=TRUE),]
+  colnames(triGrams) <- c("Word", "Frequency")
+  quadGrams <- quadGrams[order(quadGrams$Freq,decreasing=TRUE),]
+  colnames(quadGrams) <- c("Word", "Frequency")  
+  
+  if (corpusMode == "withStopWords") {
+    saveRDS (uniGrams, rdsCombinedWithStopWordsUni)
+    saveRDS (biGrams, rdsCombinedWithStopWordsBi)
+    saveRDS (triGrams, rdsCombinedWithStopWordsTri)
+    saveRDS (quadGrams, rdsCombinedWithStopWordsQuad)
+  }
+  
+  if (corpusMode == "withoutStopWords") {
+    saveRDS (uniGrams, rdsCombinedWithoutStopWordsUni)
+    saveRDS (biGrams, rdsCombinedWithoutStopWordsBi)
+    saveRDS (triGrams, rdsCombinedWithoutStopWordsTri)
+    saveRDS (quadGrams, rdsCombinedWithoutStopWordsQuad)
+  }  
+  
+}
+
+fnGenerateRDS (corpusCombinedWithStopWords, "withStopWords")
+fnGenerateRDS (corpusCobinedWithoutStopWords, "withoutStopWords")
+
+```
+
+
+## Step 6 - Summary of Work Done Till Now
+
+1. Downloading this much amount of data, creating samples out of it and exploring those samples significantly strains computer resouces. It's a learning that caching, etc. should be used intelligently and objects that are not required should be removed from memory as soon as possible.
+2. There are a lot of Bi Grams, Tri Grams and Quad Grams that have equal word frequencies.
+3. Stop words are essential building blocks of any language, English in this case. We cannot have an effective word prediction algorithm if it exculdes or gets singularly influenced by stop words - there has to be a balanced approached towards stop words.
+
+## Step 7 - Plan for Prediction Algorithm
+
+We now have a combined corpus of Twitter, News and Blogs datasets. We also have two sets of N-Grams created out of this corpus - with stop words and without stop words. It has frequencies of various terms which are handy for prediction modeling. 
+
+We can build a Shiny App that uses these N-Grams to predict next word. As mentioned before, we cannot have an effective word prediction algorithm if it exculdes or gets singularly influenced by stop words - there has to be a balanced approached towards stop words. Hence, my prediction model will have around 30-70% prediction split from stop words and with stop words n-grams. This prediction will attempt to predict 3 to 5 words in total across this split. 
+
+In case of performance issue, we can choose to remove most of the objects from memory except required N-Grams and other essentials for Shiny App. If we further observe performance issues, we shall reduce sample size from which N-Grams were created. However, chances of us requiring to reduce sample size is very less.
+
+Thank You.
+
+= End of Document =
+
+
+
